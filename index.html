@@ -263,29 +263,42 @@
       qrInstance = new QRCode(container, { text: payload, width: 260, height:260, correctLevel: QRCode.CorrectLevel.M });
     }
 
-    // --- draw image helper ---
+    // ------------ Helpers for export and drawing ------------
+
+    // draw image helper - accepts image element, dataURL string, or canvas element
     function drawImageToCanvas(ctx, imageEl, x, y, w, h) {
       return new Promise((resolve, reject) => {
         if (!imageEl) { resolve(); return; }
+        // canvas node
         if (imageEl.tagName && imageEl.tagName.toLowerCase() === "canvas") {
-          ctx.drawImage(imageEl, x, y, w, h);
-          resolve();
-          return;
-        }
-        if (imageEl.complete && imageEl.naturalWidth !== 0) {
           try { ctx.drawImage(imageEl, x, y, w, h); resolve(); } catch (e) { reject(e); }
           return;
         }
-        imageEl.onload = () => {
-          try { ctx.drawImage(imageEl, x, y, w, h); resolve(); } catch (e) { reject(e); }
+        // if imageEl is a dataURL string or src string
+        const img = new Image();
+        // For dataURLs no crossOrigin needed
+        img.crossOrigin = 'anonymous';
+        if (typeof imageEl === 'string') {
+          img.src = imageEl;
+        } else if (imageEl.src) {
+          img.src = imageEl.src;
+        } else {
+          img.src = imageEl;
+        }
+        img.onload = () => {
+          try { ctx.drawImage(img, x, y, w, h); resolve(); } catch (e) { reject(e); }
         };
-        imageEl.onerror = (e) => reject(new Error("Không thể tải ảnh: " + e));
+        img.onerror = (e) => {
+          reject(new Error('Không thể tải ảnh để vẽ: ' + e));
+        };
       });
     }
 
-    // --- fetch image and convert to dataURL (returns null on failure) ---
+    // fetch image & convert to dataURL (returns null if fails)
     async function fetchImageAsDataURL(url) {
       if (!url) return null;
+      // If already data URL, return immediately
+      if (url.startsWith && url.startsWith('data:')) return url;
       try {
         const resp = await fetch(url, { mode: 'cors' });
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
@@ -302,123 +315,202 @@
       }
     }
 
-    // --- export to png (include QR + center logo + info area) ---
+    // rounded rect
+    function roundRect(ctx, x, y, w, h, r) {
+      const radius = Math.min(r, w/2, h/2);
+      ctx.beginPath();
+      ctx.moveTo(x + radius, y);
+      ctx.arcTo(x + w, y, x + w, y + radius, radius);
+      ctx.arcTo(x + w, y + h, x + w - radius, y + h, radius);
+      ctx.arcTo(x, y + h, x, y + h - radius, radius);
+      ctx.arcTo(x, y, x + radius, y, radius);
+      ctx.closePath();
+    }
+
+    // measure text width helper
+    function measureTextWidth(text, font) {
+      const c = document.createElement('canvas');
+      const ctx = c.getContext('2d');
+      ctx.font = font;
+      return ctx.measureText(text).width;
+    }
+
+    // Main export function (draws QR + logo center + info area into one canvas)
     async function exportQRToPNG(){
       const qrBox = document.getElementById('qrBox');
       const qrEl = document.querySelector('#qrcode img, #qrcode canvas');
       if(!qrEl) throw new Error('Chưa có QR để tải.');
 
-      // Dimensions for QR box
-      const qrW = qrBox.clientWidth;
-      const qrH = qrBox.clientHeight;
-
-      // Prepare info lines
+      // Prepare content strings
       const accountNumber = accountNumberInput.value || '';
       const accountName = accountNameInput.value || '';
       const amountText = amountInput.value && Number(amountInput.value) > 0 ? Number(amountInput.value).toLocaleString('vi-VN') + ' VND' : 'Không cố định';
-      const combinedText = (storeCodeInput.value ? storeCodeInput.value : '-') + ' - ' + (orderCodeInput.value ? orderCodeInput.value : '-');
+      const storeText = storeCodeInput.value ? storeCodeInput.value : '-';
+      const orderText = orderCodeInput.value ? orderCodeInput.value : '-';
+      const combinedText = `${storeText} - ${orderText}`;
 
-      // Estimate info block heights
-      const infoPadding = 22;
+      // Visual settings
+      const padding = 20;                  // outer padding
+      const innerGap = 18;                 // gap between QR and info
       const bankLogoSize = 56;
+      const infoLineHeight = 20;
       const lineGap = 8;
-      const textLineHeight = 18;
-      const linesCount = 3;
-      const combinedH = 34;
-      const bankMetaH = bankLogoSize + 12;
-      const infoH = infoPadding + bankMetaH + (linesCount * (textLineHeight + lineGap)) + combinedH + 18;
+      const combinedHeight = 34;
+      const titleFont = '700 15px Inter, Arial';
+      const infoFont = '600 13px Inter, Arial';
+      const combinedFont = '800 15px Inter, Arial';
 
-      // Canvas total size (add margins)
-      const margin = 20;
-      const totalW = Math.round(qrW + margin * 2);
-      const totalH = Math.round(qrH + infoH + margin * 2);
+      // Get QR rendered size on page — use its bounding box for accuracy
+      const qrRect = qrBox.getBoundingClientRect();
+      const qrW = Math.round(qrRect.width);
+      const qrH = Math.round(qrRect.height);
 
+      // Calculate widths required for info text (centered under QR)
+      const infoWidthCandidates = [];
+      infoWidthCandidates.push(measureTextWidth(accountNumber, infoFont));
+      infoWidthCandidates.push(measureTextWidth(accountName.toUpperCase(), infoFont));
+      infoWidthCandidates.push(measureTextWidth(amountText, infoFont));
+      infoWidthCandidates.push(measureTextWidth(combinedText, combinedFont));
+      // bank title width
+      const bankTitleEl = document.querySelector('#bankMeta .bankTitle');
+      if (bankTitleEl && bankTitleEl.textContent) infoWidthCandidates.push(measureTextWidth(bankTitleEl.textContent, titleFont));
+      // include bank logo width
+      infoWidthCandidates.push(bankLogoSize);
+
+      const infoContentWidth = Math.max(...infoWidthCandidates, 200);
+      // canvas width should fit the larger of qrW and infoContentWidth, plus padding
+      const contentW = Math.max(qrW, Math.ceil(infoContentWidth));
+      const canvasW = Math.round(contentW + padding * 2);
+
+      // compute info block height precisely
+      const bankMetaH = bankLogoSize + 8 + 18; // logo + gap + title line estimate
+      const infoLinesH = (infoLineHeight * 3) + (lineGap * 2);
+      const infoBlockH = bankMetaH + infoLinesH + combinedHeight + 10;
+
+      // total canvas height
+      const canvasH = Math.round(padding + qrH + innerGap + infoBlockH + padding);
+
+      // Respect devicePixelRatio for sharpness
+      const dpr = Math.max(1, window.devicePixelRatio || 1);
       const canvas = document.createElement('canvas');
-      canvas.width = totalW;
-      canvas.height = totalH;
+      canvas.width = canvasW * dpr;
+      canvas.height = canvasH * dpr;
+      canvas.style.width = canvasW + 'px';
+      canvas.style.height = canvasH + 'px';
       const ctx = canvas.getContext('2d');
+      ctx.scale(dpr, dpr);
 
-      // fill background white
+      // Fill background white
       ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillRect(0, 0, canvasW, canvasH);
 
-      // Position QR
-      const qrX = margin;
-      const qrY = margin;
-      // Draw QR element (img or canvas)
+      // Starting positions
+      const centerX = canvasW / 2;
+      let curY = padding;
+
+      // Draw QR centered horizontally at top
+      const qrX = Math.round(centerX - qrW / 2);
+      const qrY = curY;
       if (qrEl.tagName && qrEl.tagName.toLowerCase() === 'img') {
         await drawImageToCanvas(ctx, qrEl, qrX, qrY, qrW, qrH);
       } else {
         ctx.drawImage(qrEl, qrX, qrY, qrW, qrH);
       }
 
-      // Draw center logo (logoPreview is dataURL if user provided file -> safe)
+      // Draw center logo (user-provided) if exists
       if (logoPreview && logoPreview.src && logoPreview.style.display !== 'none') {
         const logoW = Math.round(qrW * 0.28);
         const logoH = Math.round(qrH * 0.28);
-        const lx = qrX + Math.round((qrW - logoW) / 2);
-        const ly = qrY + Math.round((qrH - logoH) / 2);
-        // white rounded background
+        const lx = Math.round(centerX - logoW / 2);
+        const ly = Math.round(qrY + (qrH - logoH) / 2);
+        // white rounded background behind logo
         ctx.fillStyle = '#ffffff';
         roundRect(ctx, lx - 6, ly - 6, logoW + 12, logoH + 12, 999);
         ctx.fill();
-        await drawImageToCanvas(ctx, logoPreview, lx, ly, logoW, logoH);
+        try {
+          // logoPreview.src is dataURL (from FileReader) so safe
+          await drawImageToCanvas(ctx, logoPreview.src, lx, ly, logoW, logoH);
+        } catch (e) {
+          console.warn('Không vẽ được logo giữa khi xuất:', e);
+        }
       }
 
-      // Draw bankMeta centered below QR
-      let curY = qrY + qrH + 18;
-      const centerX = qrX + qrW / 2;
+      // Move to info area
+      curY = qrY + qrH + innerGap;
 
+      // Attempt to draw bank logo safely (try convert to dataURL first)
       const bankImgDom = document.querySelector('#bankMeta img.bank-logo');
-      // Attempt to draw bank logo safely: fetch and convert to dataURL first
       if (bankImgDom && bankImgDom.src) {
-        let safeDataUrl = null;
-        if (bankImgDom.src.startsWith('data:')) {
-          safeDataUrl = bankImgDom.src;
+        let safeData = null;
+        if (bankImgDom.src.startsWith && bankImgDom.src.startsWith('data:')) {
+          safeData = bankImgDom.src;
         } else {
-          safeDataUrl = await fetchImageAsDataURL(bankImgDom.src);
+          safeData = await fetchImageAsDataURL(bankImgDom.src);
         }
-
-        if (safeDataUrl) {
-          const tmp = new Image();
-          tmp.src = safeDataUrl;
-          await drawImageToCanvas(ctx, tmp, Math.round(centerX - bankLogoSize / 2), curY, bankLogoSize, bankLogoSize);
+        if (safeData) {
+          try {
+            const bW = bankLogoSize;
+            const bx = Math.round(centerX - bW / 2);
+            await drawImageToCanvas(ctx, safeData, bx, curY, bW, bW);
+          } catch (e) {
+            console.warn('Không vẽ logo ngân hàng (dù đã convert):', e);
+          }
         } else {
-          showError('Lưu ý: logo ngân hàng không được thêm vào ảnh do hạn chế CORS của server logo.');
+          // fallback: draw initials placeholder (so canvas not tainted)
+          const bankTitleText = (bankTitleEl && bankTitleEl.textContent) ? bankTitleEl.textContent : '';
+          const initials = bankTitleText.split(' ').map(s => s.trim()[0]||'').slice(0,2).join('').toUpperCase() || 'BN';
+          const bW = bankLogoSize;
+          const bx = Math.round(centerX - bW / 2);
+          ctx.fillStyle = '#eef2ff';
+          roundRect(ctx, bx, curY, bW, bW, 8);
+          ctx.fill();
+          ctx.fillStyle = '#1e40af';
+          ctx.font = '700 24px Inter, Arial';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(initials, bx + bW/2, curY + bW/2);
+          // show short UI warning already via showError earlier if desired
         }
       }
 
-      // Bank title text (if any)
-      const bankTitleEl = document.querySelector('#bankMeta .bankTitle');
-      let textY = curY + bankLogoSize + 10;
+      // Bank title (centered)
+      curY += bankLogoSize + 10;
       if (bankTitleEl && bankTitleEl.textContent) {
+        ctx.font = titleFont;
         ctx.fillStyle = '#0b1220';
-        ctx.font = '700 15px Inter, Arial';
         ctx.textAlign = 'center';
-        ctx.fillText(bankTitleEl.textContent, centerX, textY);
-        textY += 22;
+        ctx.textBaseline = 'top';
+        ctx.fillText(bankTitleEl.textContent, centerX, curY);
+        curY += 20 + 6;
       } else {
-        textY += 6;
+        curY += 6;
       }
 
-      // Draw the 3 info lines centered (account, owner, amount)
+      // Info lines: accountNumber, accountName, amount (centered)
+      ctx.font = infoFont;
       ctx.fillStyle = '#0b1220';
       ctx.textAlign = 'center';
-      ctx.font = '600 13px Inter, Arial';
-      ctx.fillText(accountNumber, centerX, textY); textY += textLineHeight + lineGap;
-      ctx.fillText(accountName.toUpperCase(), centerX, textY); textY += textLineHeight + lineGap;
-      ctx.fillText(amountText, centerX, textY); textY += textLineHeight + lineGap + 6;
+      ctx.textBaseline = 'top';
 
-      // Draw combined text centered (no label)
-      ctx.font = '800 15px Inter, Arial';
+      ctx.fillText(accountNumber, centerX, curY);
+      curY += infoLineHeight + lineGap;
+      ctx.fillText(accountName.toUpperCase(), centerX, curY);
+      curY += infoLineHeight + lineGap;
+      ctx.fillText(amountText, centerX, curY);
+      curY += infoLineHeight + lineGap + 8;
+
+      // Combined line centered (store - order)
+      ctx.font = combinedFont;
       ctx.fillStyle = '#0b1220';
-      ctx.fillText(combinedText, centerX, textY + 6);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillText(combinedText, centerX, curY);
 
-      // return dataURL
+      // Done: return dataURL
       return canvas.toDataURL('image/png');
     }
 
-    function roundRect(ctx,x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+    // ------------ End export helpers ------------
 
     // --- load banks ---
     async function loadBanks(){
@@ -556,7 +648,6 @@
 
     document.getElementById('downloadBtn').addEventListener('click', async ()=>{
       try{
-        // reset any previous error before export
         showError('');
         const dataUrl = await exportQRToPNG();
         const a = document.createElement('a'); a.href = dataUrl; a.download = 'vietqr_with_info.png'; document.body.appendChild(a); a.click(); a.remove();

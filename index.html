@@ -2,7 +2,7 @@
 <html lang="vi">
 <head>
   <meta charset="utf-8" />
-  <title>Tạo mã QR — Logo giữa bo tròn</title>
+  <title>Tạo mã QR — Sửa measureTextWidth & logo ngân hàng to hơn</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
   <style>
@@ -50,8 +50,9 @@
       border:6px solid #ffffff;
     }
 
-    .bankMeta{display:flex;align-items:center;gap:10px;justify-content:center;margin-top:12px}
-    .bank-logo{width:44px;height:44px;border-radius:10px;object-fit:contain;background:#fff;padding:6px;border:1px solid var(--border);box-shadow:0 8px 20px rgba(15,23,42,0.04)}
+    /* bank meta: increased bank logo size to 56px (desktop) */
+    .bankMeta{display:flex;align-items:center;gap:12px;justify-content:center;margin-top:12px}
+    .bank-logo{width:56px;height:56px;border-radius:12px;object-fit:contain;background:#fff;padding:6px;border:1px solid var(--border);box-shadow:0 8px 20px rgba(15,23,42,0.04)}
     .bankTitle{font-weight:700;font-size:14px;text-align:center}
 
     .info-table{width:100%;margin-top:12px}
@@ -69,9 +70,10 @@
       .result{display:block}
       .qr-box{width:260px;height:260px}
       .final-image{width:90%}
-      .bank-logo{width:42px;height:42px}
+      .bank-logo{width:48px;height:48px}
       .bankTitle{font-size:13px}
       .info-value{font-size:13px}
+      #logoPreview{width:28%; height:28%}
     }
 
     #error{color:#b91c1c;font-size:13px;display:none;margin-top:6px}
@@ -81,15 +83,15 @@
   <div class="wrap">
     <div class="card">
       <header>
-        <div><h1>Tạo mã QR thanh toán VietQR</h1><p>Logo giữa sẽ bo tròn giống mẫu.</p></div>
+        <div><h1>Tạo mã QR thanh toán VietQR</h1><p>Logo giữa sẽ bo tròn giống mẫu; logo ngân hàng lớn hơn.</p></div>
       </header>
 
       <form id="qr-form" autocomplete="off" novalidate>
         <div class="field"><label>Ngân hàng (bắt buộc)</label><select id="bankSelect" required><option value="">— Chọn ngân hàng —</option></select><div class="hint">Dùng API public VietQR để lấy BIN.</div></div>
         <div class="field"><label>Số tài khoản nhận</label><input id="accountNumber" required placeholder="Ví dụ: 087332665"/></div>
         <div class="field"><label>Tên chủ tài khoản</label><input id="accountName" required placeholder="BUI DIEU HUONG"/></div>
-        <div class="field"><label>Số tiền (VND)</label><input id="amount" type="number" min="0" step="1" placeholder="Ví dụ: 5545345"/></div>
-        <div class="field"><label>Nội dung chuyển khoản</label><input id="description" placeholder="Ví dụ: GH-234"/></div>
+        <div class="field"><label>Số tiền (VND)</label><input id="amount" type="number" min="0" step="1" placeholder="Ví dụ: 5.545.345"/></div>
+        <div class="field"><label>Nội dung chuyển khoản</label><input id="description"/></div>
         <div class="field"><label>Mã cửa hàng</label><input id="storeCode" placeholder="IN&Fun Studio"/></div>
         <div class="field"><label>Mã đơn hàng</label><input id="orderCode" placeholder="HSJ-34234"/></div>
         <div class="field"><label>Logo ở giữa QR (tùy chọn)</label><input type="file" id="logoInput" accept="image/*"/></div>
@@ -114,12 +116,10 @@
         <div class="result-block" id="previewColumn">
           <h2>QR hiển thị</h2>
 
-          <!-- Preview card -->
           <div id="previewCard" style="display:block; width:100%; max-width:420px; margin:0 auto;">
             <div class="qr-box" id="qrBox">
               <div id="qrcode"></div>
               <div class="qr-placeholder" id="qrPlaceholder">QR sẽ hiển thị sau khi bấm “Tạo mã QR”</div>
-              <!-- preview rounded logo -->
               <img id="logoPreview" alt="logo giữa"/>
             </div>
 
@@ -130,7 +130,6 @@
             <div class="combined" id="combinedText" style="display:none"></div>
           </div>
 
-          <!-- Final image container (replaces previewCard) -->
           <div id="finalImageContainer" style="width:100%;display:flex;justify-content:center"></div>
 
           <div style="font-size:12px;color:var(--muted);margin-top:8px">Chuột phải → Lưu hình ảnh (ảnh đã ghép sẵn)</div>
@@ -142,395 +141,344 @@
   <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
 
   <script>
-  // TLV & CRC helpers (same as before)
-  function tlv(id, value){ const length = value.length; if(length>99) throw new Error('TLV quá dài'); return id + String(length).padStart(2,'0') + value; }
-  function crc16CCITT(str){ let crc=0xFFFF; for(let i=0;i<str.length;i++){ crc ^= str.charCodeAt(i) << 8; for(let j=0;j<8;j++){ if(crc & 0x8000) crc = (crc << 1) ^ 0x1021; else crc <<= 1; crc &= 0xFFFF; } } return crc.toString(16).toUpperCase().padStart(4,'0'); }
-  function buildVietQRPayload({ acqId, accountNumber, accountName, amount, description }){
-    if(!acqId||!accountNumber) throw new Error('Thiếu BIN hoặc số tài khoản');
-    acqId=String(acqId).trim(); accountNumber=String(accountNumber).trim(); accountName=accountName?String(accountName).trim():""; description=description?String(description).trim():"";
-    const parts=[]; parts.push(tlv('00','01'));
-    const hasAmount = amount !== undefined && amount !== null && String(amount).trim()!=='' && Number(amount)>0;
-    parts.push(tlv('01', hasAmount ? '12' : '11'));
-    const guid = tlv('00','A000000727'); const beneficiary = tlv('00', acqId) + tlv('01', accountNumber); const beneficiaryWrapper = tlv('01', beneficiary);
-    const serviceCode = tlv('02','QRIBFTTA'); parts.push(tlv('38', guid + beneficiaryWrapper + serviceCode));
-    parts.push(tlv('52','0000')); parts.push(tlv('53','704'));
-    if(hasAmount){ const amtInt = Math.round(Number(amount)); if(amtInt>0) parts.push(tlv('54', String(amtInt))); }
-    parts.push(tlv('58','VN'));
-    if(accountName) parts.push(tlv('59', accountName.toUpperCase()));
-    if(description) parts.push(tlv('62', tlv('08', description)));
-    const data = parts.join(''); const dataForCRC = data + '63' + '04'; const crc = crc16CCITT(dataForCRC);
-    return dataForCRC + crc;
-  }
-
-  // DOM refs
-  const bankSelect = document.getElementById('bankSelect');
-  const accountNumberInput = document.getElementById('accountNumber');
-  const accountNameInput = document.getElementById('accountName');
-  const amountInput = document.getElementById('amount');
-  const descriptionInput = document.getElementById('description');
-  const orderCodeInput = document.getElementById('orderCode');
-  const storeCodeInput = document.getElementById('storeCode');
-  const logoInput = document.getElementById('logoInput');
-  const logoPreview = document.getElementById('logoPreview');
-
-  const previewCard = document.getElementById('previewCard');
-  const qrPlaceholder = document.getElementById('qrPlaceholder');
-  const finalImageContainer = document.getElementById('finalImageContainer');
-  const bankMeta = document.getElementById('bankMeta');
-  const infoTable = document.getElementById('infoTable');
-  const combinedTextEl = document.getElementById('combinedText');
-  const payloadTextarea = document.getElementById('payload');
-  const errorBox = document.getElementById('error');
-
-  let qrInstance = null, lastPayload = '';
-
-  function showError(msg){ errorBox.textContent = msg; errorBox.style.display = msg ? 'block' : 'none'; }
-
-  function clearPreviewAndFinal(){
-    const qrcode = document.getElementById('qrcode');
-    qrcode.innerHTML = '';
-    const existing = document.getElementById('finalImage'); if(existing) existing.remove();
-    previewCard.style.display = 'block';
-    qrPlaceholder.style.display = 'flex';
-    bankMeta.innerHTML = ''; infoTable.innerHTML = ''; combinedTextEl.style.display = 'none';
-    payloadTextarea.value = ''; lastPayload = '';
-  }
-
-  function renderQR(payload){
-    clearPreviewAndFinal();
-    const container = document.getElementById('qrcode');
-    qrInstance = new QRCode(container, { text: payload, width: 260, height: 260, correctLevel: QRCode.CorrectLevel.M });
-    qrPlaceholder.style.display = 'none';
-  }
-
-  // drawing helpers
-  function drawImageToCanvas(ctx, srcOrEl, x,y,w,h){
-    return new Promise((resolve,reject)=>{
-      if(!srcOrEl){ resolve(); return; }
-      if(typeof srcOrEl==='string' && srcOrEl.startsWith('data:')){
-        const img = new Image(); img.src = srcOrEl; img.onload = ()=>{ ctx.drawImage(img,x,y,w,h); resolve(); }; img.onerror=reject; return;
-      }
-      if(srcOrEl.tagName && srcOrEl.tagName.toLowerCase()==='canvas'){ try{ ctx.drawImage(srcOrEl,x,y,w,h); resolve(); }catch(e){reject(e);} return; }
-      const img = new Image(); img.crossOrigin='anonymous';
-      if(typeof srcOrEl === 'string') img.src = srcOrEl; else if(srcOrEl.src) img.src = srcOrEl.src; else img.src = srcOrEl;
-      img.onload = ()=>{ try{ ctx.drawImage(img,x,y,w,h); resolve(); }catch(e){reject(e);} };
-      img.onerror = ()=>reject(new Error('Không tải được ảnh để vẽ'));
-    });
-  }
-
-  async function fetchImageAsDataURL(url){
-    if(!url) return null;
-    if(url.startsWith&&url.startsWith('data:')) return url;
-    try{
-      const resp = await fetch(url, { mode:'cors' });
-      if(!resp.ok) throw new Error('HTTP ' + resp.status);
-      const blob = await resp.blob();
-      return await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(blob); });
-    }catch(e){ console.warn('fetchImageAsDataURL failed',e); return null; }
-  }
-
-  function roundRect(ctx,x,y,w,h,r){ const radius=Math.min(r,w/2,h/2); ctx.beginPath(); ctx.moveTo(x+radius,y); ctx.arcTo(x+w,y,x+w,y+radius,radius); ctx.arcTo(x+w,y+h,x+w-radius,y+h,radius); ctx.arcTo(x,y+h,x,y+h-radius,radius); ctx.arcTo(x,y,x+radius,y,radius); ctx.closePath(); }
-
-  // draw circular image (cover) with white background and white ring
-  async function drawCircularImage(ctx, src, cx, cy, radius, border=6){
-    return new Promise(async (resolve, reject) => {
-      try {
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        img.src = src;
-        await new Promise((res, rej) => { img.onload = res; img.onerror = rej; });
-        // draw white circular bg slightly bigger than radius
-        ctx.fillStyle = '#ffffff';
-        ctx.beginPath(); ctx.arc(cx, cy, radius + border/2, 0, 2*Math.PI); ctx.closePath(); ctx.fill();
-        // clip to circle of radius (radius)
-        ctx.save();
-        ctx.beginPath(); ctx.arc(cx, cy, radius, 0, 2*Math.PI); ctx.closePath(); ctx.clip();
-        // compute cover scale
-        const iw = img.naturalWidth, ih = img.naturalHeight;
-        const scale = Math.max((radius*2)/iw, (radius*2)/ih);
-        const dw = iw*scale, dh = ih*scale;
-        const dx = cx - dw/2, dy = cy - dh/2;
-        ctx.drawImage(img, dx, dy, dw, dh);
-        ctx.restore();
-        // draw white border ring
-        ctx.beginPath(); ctx.arc(cx, cy, radius, 0, 2*Math.PI); ctx.closePath();
-        ctx.lineWidth = border;
-        ctx.strokeStyle = '#ffffff';
-        ctx.stroke();
-        resolve();
-      } catch (e) {
-        reject(e);
-      }
-    });
-  }
-
-  // create final image that matches layout, with circular center logo
-  async function createFinalImageDataURL(){
-    const qrcodeEl = document.querySelector('#qrcode img, #qrcode canvas');
-    if(!qrcodeEl) throw new Error('Chưa có QR để xuất');
-
-    const account = accountNumberInput.value || '';
-    const name = accountNameInput.value || '';
-    const amount = amountInput.value && Number(amountInput.value)>0 ? Number(amountInput.value).toLocaleString('vi-VN') + ' VND' : 'Không cố định';
-    const store = storeCodeInput.value || '-';
-    const order = orderCodeInput.value || '-';
-    const combined = `${store} - ${order}`;
-
-    const cardPadding = 20;
-    const qrBoxSize = 320;
-    const qrMargin = 12;
-    const bankLogoSize = 44;
-    const labelFont = '12px Inter, Arial';
-    const valueFont = '700 14px Inter, Arial';
-    const combinedFont = '800 14px Inter, Arial';
-    const bankTitleFont = '700 14px Inter, Arial';
-
-    // width calculation
-    const candidates = [
-      measureTextWidth(account, valueFont),
-      measureTextWidth(name.toUpperCase(), valueFont),
-      measureTextWidth(amount, valueFont),
-      measureTextWidth(combined, combinedFont),
-      bankLogoSize
-    ];
-    const contentW = Math.max(qrBoxSize, ...candidates);
-    const cardW = Math.round(contentW + cardPadding*2);
-
-    // heights
-    const qrAreaH = qrBoxSize + qrMargin*2;
-    const bankMetaH = bankLogoSize + 12 + 18;
-    const infoRowsH = 3*(20) + 2*8;
-    const combinedH = 36;
-    const cardH = Math.round(cardPadding + qrAreaH + 12 + bankMetaH + 8 + infoRowsH + combinedH + cardPadding);
-
-    const dpr = Math.max(1, window.devicePixelRatio || 1);
-    const canvas = document.createElement('canvas');
-    canvas.width = cardW * dpr; canvas.height = cardH * dpr;
-    canvas.style.width = cardW + 'px'; canvas.style.height = cardH + 'px';
-    const ctx = canvas.getContext('2d');
-    ctx.scale(dpr, dpr);
-
-    // draw card background with shadow
-    ctx.save();
-    ctx.shadowColor = 'rgba(0,0,0,0.06)';
-    ctx.shadowBlur = 28; ctx.shadowOffsetY = 6;
-    roundRect(ctx, 0.5, 0.5, cardW-1, cardH-1, 18);
-    ctx.fillStyle = '#ffffff'; ctx.fill();
-    ctx.restore();
-
-    // subtle border
-    ctx.strokeStyle = 'rgba(16,24,40,0.04)'; ctx.lineWidth = 1;
-    roundRect(ctx, 0.5, 0.5, cardW-1, cardH-1, 18); ctx.stroke();
-
-    // QR area
-    const qrAreaX = Math.round((cardW - qrBoxSize)/2);
-    const qrAreaY = cardPadding;
-    ctx.save(); ctx.shadowColor='rgba(0,0,0,0.06)'; ctx.shadowBlur=18; ctx.shadowOffsetY=4;
-    roundRect(ctx, qrAreaX, qrAreaY, qrBoxSize, qrBoxSize, 14); ctx.fillStyle='#ffffff'; ctx.fill(); ctx.restore();
-    ctx.strokeStyle='rgba(16,24,40,0.03)'; ctx.lineWidth=1; roundRect(ctx, qrAreaX, qrAreaY, qrBoxSize, qrBoxSize, 14); ctx.stroke();
-
-    // draw QR inside margin
-    const qrInnerX = qrAreaX + qrMargin;
-    const qrInnerY = qrAreaY + qrMargin;
-    const qrInnerSize = qrBoxSize - qrMargin*2;
-    if(qrcodeEl.tagName && qrcodeEl.tagName.toLowerCase()==='canvas'){
-      ctx.drawImage(qrcodeEl, qrInnerX, qrInnerY, qrInnerSize, qrInnerSize);
-    } else {
-      await drawImageToCanvas(ctx, qrcodeEl, qrInnerX, qrInnerY, qrInnerSize, qrInnerSize);
+    // TLV & CRC
+    function tlv(id, value){ const length = value.length; if(length>99) throw new Error('TLV quá dài'); return id + String(length).padStart(2,'0') + value; }
+    function crc16CCITT(str){ let crc=0xFFFF; for(let i=0;i<str.length;i++){ crc ^= str.charCodeAt(i) << 8; for(let j=0;j<8;j++){ if(crc & 0x8000) crc = (crc << 1) ^ 0x1021; else crc <<= 1; crc &= 0xFFFF; } } return crc.toString(16).toUpperCase().padStart(4,'0'); }
+    function buildVietQRPayload({ acqId, accountNumber, accountName, amount, description }){
+      if(!acqId||!accountNumber) throw new Error('Thiếu BIN hoặc số tài khoản');
+      acqId=String(acqId).trim(); accountNumber=String(accountNumber).trim(); accountName=accountName?String(accountName).trim():""; description=description?String(description).trim():"";
+      const parts=[]; parts.push(tlv('00','01'));
+      const hasAmount = amount !== undefined && amount !== null && String(amount).trim()!=='' && Number(amount)>0;
+      parts.push(tlv('01', hasAmount ? '12' : '11'));
+      const guid = tlv('00','A000000727'); const beneficiary = tlv('00', acqId) + tlv('01', accountNumber); const beneficiaryWrapper = tlv('01', beneficiary);
+      const serviceCode = tlv('02','QRIBFTTA'); parts.push(tlv('38', guid + beneficiaryWrapper + serviceCode));
+      parts.push(tlv('52','0000')); parts.push(tlv('53','704'));
+      if(hasAmount){ const amtInt=Math.round(Number(amount)); if(amtInt>0) parts.push(tlv('54', String(amtInt))); }
+      parts.push(tlv('58','VN'));
+      if(accountName) parts.push(tlv('59', accountName.toUpperCase()));
+      if(description) parts.push(tlv('62', tlv('08', description)));
+      const data = parts.join(''); const dataForCRC = data + '63' + '04'; const crc = crc16CCITT(dataForCRC);
+      return dataForCRC + crc;
     }
 
-    // draw circular center logo (if user supplied)
-    if(logoPreview && logoPreview.src && logoPreview.style.display !== 'none'){
-      const logoRadius = Math.round((qrInnerSize * 0.26)/2);
-      const cx = qrInnerX + qrInnerSize/2;
-      const cy = qrInnerY + qrInnerSize/2;
-      try {
-        await drawCircularImage(ctx, logoPreview.src, cx, cy, logoRadius, 8);
-      } catch (e) {
-        console.warn('Không vẽ logo giữa tròn:', e);
-      }
+    // DOM refs
+    const bankSelect = document.getElementById('bankSelect');
+    const accountNumberInput = document.getElementById('accountNumber');
+    const accountNameInput = document.getElementById('accountName');
+    const amountInput = document.getElementById('amount');
+    const descriptionInput = document.getElementById('description');
+    const orderCodeInput = document.getElementById('orderCode');
+    const storeCodeInput = document.getElementById('storeCode');
+    const logoInput = document.getElementById('logoInput');
+    const logoPreview = document.getElementById('logoPreview');
+    const previewCard = document.getElementById('previewCard');
+    const qrPlaceholder = document.getElementById('qrPlaceholder');
+    const finalImageContainer = document.getElementById('finalImageContainer');
+    const bankMeta = document.getElementById('bankMeta');
+    const infoTable = document.getElementById('infoTable');
+    const combinedTextEl = document.getElementById('combinedText');
+    const payloadTextarea = document.getElementById('payload');
+    const errorBox = document.getElementById('error');
+
+    let qrInstance = null, lastPayload='';
+
+    function showError(msg){ errorBox.textContent = msg; errorBox.style.display = msg ? 'block' : 'none'; }
+
+    // drawing helpers
+    function drawImageToCanvas(ctx, srcOrEl, x,y,w,h){
+      return new Promise((resolve,reject)=>{
+        if(!srcOrEl){ resolve(); return; }
+        if(typeof srcOrEl==='string' && srcOrEl.startsWith('data:')){
+          const img=new Image(); img.src=srcOrEl; img.onload=()=>{ctx.drawImage(img,x,y,w,h); resolve();}; img.onerror=reject; return;
+        }
+        if(srcOrEl.tagName && srcOrEl.tagName.toLowerCase()==='canvas'){ try{ ctx.drawImage(srcOrEl,x,y,w,h); resolve(); }catch(e){reject(e);} return; }
+        const img=new Image(); img.crossOrigin='anonymous';
+        if(typeof srcOrEl==='string') img.src=srcOrEl; else if(srcOrEl.src) img.src=srcOrEl.src; else img.src=srcOrEl;
+        img.onload = ()=>{ try{ ctx.drawImage(img,x,y,w,h); resolve(); }catch(e){reject(e);} };
+        img.onerror = ()=>reject(new Error('Không tải được ảnh để vẽ'));
+      });
     }
 
-    // bank meta & info
-    let curY = qrAreaY + qrBoxSize + 12;
-    const centerX = cardW/2;
+    async function fetchImageAsDataURL(url){
+      if(!url) return null;
+      if(url.startsWith && url.startsWith('data:')) return url;
+      try{
+        const resp = await fetch(url, { mode:'cors' });
+        if(!resp.ok) throw new Error('HTTP ' + resp.status);
+        const blob = await resp.blob();
+        return await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(blob); });
+      }catch(e){ console.warn('fetchImageAsDataURL failed', e); return null; }
+    }
 
-    // bank logo
-    const bankLogoEl = document.querySelector('#bankMeta img.bank-logo');
-    const bankTitleEl = document.querySelector('#bankMeta .bankTitle');
-    if(bankLogoEl && bankLogoEl.src){
-      let safe = null;
-      if(bankLogoEl.src.startsWith && bankLogoEl.src.startsWith('data:')) safe = bankLogoEl.src;
-      else safe = await fetchImageAsDataURL(bankLogoEl.src);
-      if(safe){
-        const bx = Math.round(centerX - bankLogoSize/2);
-        await drawImageToCanvas(ctx, safe, bx, curY, bankLogoSize, bankLogoSize);
+    function roundRect(ctx,x,y,w,h,r){ const radius=Math.min(r,w/2,h/2); ctx.beginPath(); ctx.moveTo(x+radius,y); ctx.arcTo(x+w,y,x+w,y+radius,radius); ctx.arcTo(x+w,y+h,x+w-radius,y+h,radius); ctx.arcTo(x,y+h,x,y+h-radius,radius); ctx.arcTo(x,y,x+radius,y,radius); ctx.closePath(); }
+
+    // measureTextWidth: fixed (must be defined before use)
+    function measureTextWidth(text, font){
+      const c=document.createElement('canvas'); const ctx=c.getContext('2d'); ctx.font = font; return ctx.measureText(text).width;
+    }
+
+    // draw circular image (cover) with white background and white ring
+    async function drawCircularImage(ctx, src, cx, cy, radius, border=6){
+      return new Promise(async (resolve,reject)=>{
+        try{
+          const img = new Image();
+          img.crossOrigin='anonymous';
+          img.src = src;
+          await new Promise((res,rej)=>{ img.onload=res; img.onerror=rej; });
+          // white circle bg
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath(); ctx.arc(cx, cy, radius + border/2, 0, 2*Math.PI); ctx.closePath(); ctx.fill();
+          // clip to circle
+          ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, radius, 0, 2*Math.PI); ctx.closePath(); ctx.clip();
+          // cover scale
+          const iw=img.naturalWidth, ih=img.naturalHeight;
+          const scale = Math.max((radius*2)/iw, (radius*2)/ih);
+          const dw = iw*scale, dh = ih*scale;
+          const dx = cx - dw/2, dy = cy - dh/2;
+          ctx.drawImage(img, dx, dy, dw, dh);
+          ctx.restore();
+          // white border ring
+          ctx.beginPath(); ctx.arc(cx, cy, radius, 0, 2*Math.PI); ctx.closePath();
+          ctx.lineWidth = border; ctx.strokeStyle = '#ffffff'; ctx.stroke();
+          resolve();
+        }catch(e){ reject(e); }
+      });
+    }
+
+    // create final image (card) — bank logo bigger (56px)
+    async function createFinalImageDataURL(){
+      const qrcodeEl = document.querySelector('#qrcode img, #qrcode canvas');
+      if(!qrcodeEl) throw new Error('Chưa có QR để xuất');
+
+      const account = accountNumberInput.value || '';
+      const name = accountNameInput.value || '';
+      const amount = amountInput.value && Number(amountInput.value)>0 ? Number(amountInput.value).toLocaleString('vi-VN') + ' VND' : 'Không cố định';
+      const store = storeCodeInput.value || '-';
+      const order = orderCodeInput.value || '-';
+      const combined = `${store} - ${order}`;
+
+      const cardPadding = 20;
+      const qrBoxSize = 320;
+      const qrMargin = 12;
+      const bankLogoSize = 56; // <-- increased from 44 to 56
+      const labelFont = '12px Inter, Arial';
+      const valueFont = '700 14px Inter, Arial';
+      const combinedFont = '800 14px Inter, Arial';
+      const bankTitleFont = '700 14px Inter, Arial';
+
+      const candidates = [
+        measureTextWidth(account, valueFont),
+        measureTextWidth(name.toUpperCase(), valueFont),
+        measureTextWidth(amount, valueFont),
+        measureTextWidth(combined, combinedFont),
+        bankLogoSize
+      ];
+      const contentW = Math.max(qrBoxSize, ...candidates);
+      const cardW = Math.round(contentW + cardPadding*2);
+
+      const qrAreaH = qrBoxSize + qrMargin*2;
+      const bankMetaH = bankLogoSize + 12 + 18;
+      const infoRowsH = 3*(20) + 2*8;
+      const combinedH = 36;
+      const cardH = Math.round(cardPadding + qrAreaH + 12 + bankMetaH + 8 + infoRowsH + combinedH + cardPadding);
+
+      const dpr = Math.max(1, window.devicePixelRatio || 1);
+      const canvas=document.createElement('canvas'); canvas.width = cardW * dpr; canvas.height = cardH * dpr;
+      canvas.style.width = cardW + 'px'; canvas.style.height = cardH + 'px';
+      const ctx = canvas.getContext('2d'); ctx.scale(dpr, dpr);
+
+      // card background + shadow
+      ctx.save(); ctx.shadowColor='rgba(0,0,0,0.06)'; ctx.shadowBlur=28; ctx.shadowOffsetY=6;
+      roundRect(ctx, 0.5, 0.5, cardW-1, cardH-1, 18); ctx.fillStyle='#ffffff'; ctx.fill(); ctx.restore();
+      ctx.strokeStyle='rgba(16,24,40,0.04)'; ctx.lineWidth=1; roundRect(ctx, 0.5, 0.5, cardW-1, cardH-1, 18); ctx.stroke();
+
+      // QR area
+      const qrAreaX = Math.round((cardW - qrBoxSize)/2);
+      const qrAreaY = cardPadding;
+      ctx.save(); ctx.shadowColor='rgba(0,0,0,0.06)'; ctx.shadowBlur=18; ctx.shadowOffsetY=4;
+      roundRect(ctx, qrAreaX, qrAreaY, qrBoxSize, qrBoxSize, 14); ctx.fillStyle='#ffffff'; ctx.fill(); ctx.restore();
+      ctx.strokeStyle='rgba(16,24,40,0.03)'; ctx.lineWidth=1; roundRect(ctx, qrAreaX, qrAreaY, qrBoxSize, qrBoxSize, 14); ctx.stroke();
+
+      const qrInnerX = qrAreaX + qrMargin; const qrInnerY = qrAreaY + qrMargin; const qrInnerSize = qrBoxSize - qrMargin*2;
+      if(qrcodeEl.tagName && qrcodeEl.tagName.toLowerCase()==='canvas'){
+        ctx.drawImage(qrcodeEl, qrInnerX, qrInnerY, qrInnerSize, qrInnerSize);
       } else {
-        const bx = Math.round(centerX - bankLogoSize/2);
-        ctx.fillStyle = '#eef2ff'; roundRect(ctx, bx, curY, bankLogoSize, bankLogoSize, 8); ctx.fill();
-        ctx.fillStyle = '#1e40af'; ctx.font='700 22px Inter, Arial'; ctx.textAlign='center'; ctx.textBaseline='middle';
-        const title = bankTitleEl && bankTitleEl.textContent ? bankTitleEl.textContent : ''; const initials = (title.split(' ').map(s=>s.trim()[0]||'').slice(0,2).join('').toUpperCase())||'BN';
-        ctx.fillText(initials, bx + bankLogoSize/2, curY + bankLogoSize/2);
+        await drawImageToCanvas(ctx, qrcodeEl, qrInnerX, qrInnerY, qrInnerSize, qrInnerSize);
       }
+
+      // center circular logo
+      if(logoPreview && logoPreview.src && logoPreview.style.display !== 'none'){
+        const logoRadius = Math.round((qrInnerSize * 0.26)/2);
+        const cx = qrInnerX + qrInnerSize/2; const cy = qrInnerY + qrInnerSize/2;
+        try{ await drawCircularImage(ctx, logoPreview.src, cx, cy, logoRadius, 8); } catch(e){ console.warn('drawCircularImage failed', e); }
+      }
+
+      // bank meta & info
+      let curY = qrAreaY + qrBoxSize + 12; const centerX = cardW/2;
+      const bankLogoEl = document.querySelector('#bankMeta img.bank-logo'); const bankTitleEl = document.querySelector('#bankMeta .bankTitle');
+      if(bankLogoEl && bankLogoEl.src){
+        let safe = null;
+        if(bankLogoEl.src.startsWith && bankLogoEl.src.startsWith('data:')) safe = bankLogoEl.src;
+        else safe = await fetchImageAsDataURL(bankLogoEl.src);
+        if(safe){
+          const bx = Math.round(centerX - bankLogoSize/2);
+          await drawImageToCanvas(ctx, safe, bx, curY, bankLogoSize, bankLogoSize);
+        } else {
+          const bx = Math.round(centerX - bankLogoSize/2);
+          ctx.fillStyle='#eef2ff'; roundRect(ctx, bx, curY, bankLogoSize, bankLogoSize, 8); ctx.fill();
+          const title = bankTitleEl && bankTitleEl.textContent ? bankTitleEl.textContent : '';
+          const initials = (title.split(' ').map(s=>s.trim()[0]||'').slice(0,2).join('').toUpperCase())||'BN';
+          ctx.fillStyle='#1e40af'; ctx.font='700 24px Inter, Arial'; ctx.textAlign='center'; ctx.textBaseline='middle';
+          ctx.fillText(initials, bx + bankLogoSize/2, curY + bankLogoSize/2);
+          showError('Lưu ý: logo ngân hàng không thêm được do CORS.');
+        }
+      }
+
+      curY += bankLogoSize + 8;
+      if(bankTitleEl && bankTitleEl.textContent){
+        ctx.font = bankTitleFont; ctx.fillStyle='#0b1220'; ctx.textAlign='center'; ctx.textBaseline='top';
+        ctx.fillText(bankTitleEl.textContent, centerX, curY); curY += 20;
+      }
+      curY += 6;
+
+      const leftX = cardPadding + 12; const rightX = cardW - cardPadding - 12;
+      const rows = [
+        {label:'Số tài khoản', value:account},
+        {label:'Chủ tài khoản', value:name.toUpperCase()},
+        {label:'Số tiền', value:amount}
+      ];
+      for(let i=0;i<rows.length;i++){
+        const r = rows[i];
+        ctx.font = '12px Inter, Arial'; ctx.fillStyle='rgba(15,23,42,0.6)'; ctx.textAlign='left'; ctx.textBaseline='top';
+        ctx.fillText(r.label, leftX, curY);
+        ctx.font = '700 14px Inter, Arial'; ctx.fillStyle='#0b1220'; ctx.textAlign='right';
+        ctx.fillText(r.value, rightX, curY);
+        curY += 20 + 8;
+      }
+
+      ctx.font = combinedFont; ctx.fillStyle = '#0b1220'; ctx.textAlign = 'center';
+      ctx.fillText(combined, centerX, curY + 4);
+
+      return canvas.toDataURL('image/png');
     }
 
-    // bank title
-    curY += bankLogoSize + 8;
-    if(bankTitleEl && bankTitleEl.textContent){
-      ctx.font = bankTitleFont; ctx.fillStyle = '#0b1220'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-      ctx.fillText(bankTitleEl.textContent, centerX, curY);
-      curY += 20;
-    }
-    curY += 6;
-
-    // rows
-    const leftX = cardPadding + 12;
-    const rightX = cardW - cardPadding - 12;
-    const rows = [
-      { label:'Số tài khoản', value:account },
-      { label:'Chủ tài khoản', value:name.toUpperCase() },
-      { label:'Số tiền', value:amount }
-    ];
-    for(let i=0;i<rows.length;i++){
-      const r = rows[i];
-      ctx.font = '12px Inter, Arial'; ctx.fillStyle = 'rgba(15,23,42,0.6)'; ctx.textAlign='left'; ctx.textBaseline='top';
-      ctx.fillText(r.label, leftX, curY);
-      ctx.font = '700 14px Inter, Arial'; ctx.fillStyle = '#0b1220'; ctx.textAlign='right';
-      ctx.fillText(r.value, rightX, curY);
-      curY += 20 + 8;
+    // show final image
+    async function showFinalImage(){
+      try{
+        const dataUrl = await createFinalImageDataURL();
+        previewCard.style.display = 'none';
+        const existing = document.getElementById('finalImage'); if(existing) existing.remove();
+        const img = document.createElement('img'); img.id='finalImage'; img.className='final-image'; img.src = dataUrl; img.alt='VietQR';
+        finalImageContainer.appendChild(img);
+        img.scrollIntoView({behavior:'smooth', block:'center'});
+      }catch(e){ console.error(e); showError(e.message || 'Không thể tạo ảnh cuối'); }
     }
 
-    // combined centered
-    ctx.font = combinedFont; ctx.fillStyle = '#0b1220'; ctx.textAlign='center';
-    ctx.fillText(combined, centerX, curY + 4);
-
-    return canvas.toDataURL('image/png');
-  }
-
-  // show final image replacing preview
-  async function showFinalImage(){
-    try{
-      const dataUrl = await createFinalImageDataURL();
-      previewCard.style.display = 'none';
-      const existing = document.getElementById('finalImage'); if(existing) existing.remove();
-      const img = document.createElement('img'); img.id='finalImage'; img.className='final-image'; img.src=dataUrl; img.alt='VietQR';
-      finalImageContainer.appendChild(img);
-      img.scrollIntoView({behavior:'smooth', block:'center'});
-    }catch(e){ console.error(e); showError(e.message || 'Không thể tạo ảnh cuối'); }
-  }
-
-  // load banks & defaults
-  async function loadBanks(){
-    try{
-      const res = await fetch('https://api.vietqr.io/v1/banks');
-      const json = await res.json();
-      if(json && (json.code==='00' || json.code===200) && Array.isArray(json.data)){
-        json.data.forEach(bank=>{
-          const opt = document.createElement('option');
-          opt.value = bank.bin || bank.acqId || bank.bin_number || '';
-          const short = bank.short_name || bank.code || '';
-          opt.textContent = `${short} — ${bank.name || ''}`;
-          if(bank.logo) opt.dataset.logo = bank.logo;
-          if(bank.logo_url) opt.dataset.logo = bank.logo_url;
-          if(bank.name) opt.dataset.bankname = bank.name;
-          if(bank.code) opt.dataset.code = bank.code;
-          bankSelect.appendChild(opt);
-        });
-      } else console.warn('vietqr API trả về không chuẩn');
-    }catch(e){ console.warn('Không load banks', e); }
-    finally{ setDefaultValues(); }
-  }
-
-  function setDefaultValues(){
-    const defaultBankKey = 'VIB';
-    const defaultAccount = '087332665';
-    const defaultName = 'BUI DIEU HUONG';
-    const defaultStore = 'IN&Fun Studio';
-    let foundIndex = -1;
-    for(let i=0;i<bankSelect.options.length;i++){
-      const opt = bankSelect.options[i];
-      const text = (opt.textContent||'').toUpperCase();
-      const code = (opt.dataset.code||'').toUpperCase();
-      if(code === defaultBankKey || text.includes(defaultBankKey)) { foundIndex = i; break; }
+    // load banks & defaults
+    async function loadBanks(){
+      try{
+        const res = await fetch('https://api.vietqr.io/v1/banks');
+        const json = await res.json();
+        if(json && (json.code==='00' || json.code===200) && Array.isArray(json.data)){
+          json.data.forEach(bank=>{
+            const opt=document.createElement('option');
+            opt.value = bank.bin || bank.acqId || bank.bin_number || '';
+            const short = bank.short_name || bank.code || '';
+            opt.textContent = `${short} — ${bank.name || ''}`;
+            if(bank.logo) opt.dataset.logo = bank.logo;
+            if(bank.logo_url) opt.dataset.logo = bank.logo_url;
+            if(bank.name) opt.dataset.bankname = bank.name;
+            if(bank.code) opt.dataset.code = bank.code;
+            bankSelect.appendChild(opt);
+          });
+        } else console.warn('vietqr API trả về không chuẩn');
+      }catch(e){ console.warn('Không load banks', e); }
+      finally{ setDefaultValues(); }
     }
-    if(foundIndex > 0){ bankSelect.selectedIndex = foundIndex; renderBankMeta(); }
-    accountNumberInput.value = defaultAccount; accountNameInput.value = defaultName; storeCodeInput.value = defaultStore;
-  }
 
-  function makePlaceholderDataUrl(text){
-    const initials = (text||'').split(' ').map(s=>s.trim()[0]||'').slice(0,2).join('').toUpperCase() || 'BN';
-    const c=document.createElement('canvas'); c.width=120; c.height=120; const ctx=c.getContext('2d');
-    ctx.fillStyle='#f1f5f9'; ctx.fillRect(0,0,120,120); ctx.fillStyle='#0f1724'; ctx.font='bold 44px Inter,Arial'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(initials,60,64); return c.toDataURL('image/png');
-  }
+    function setDefaultValues(){
+      const defaultBankKey = 'VIB';
+      const defaultAccount = '087332665';
+      const defaultName = 'BUI DIEU HUONG';
+      const defaultStore = 'IN&Fun Studio';
+      let foundIndex = -1;
+      for(let i=0;i<bankSelect.options.length;i++){
+        const opt = bankSelect.options[i];
+        const text=(opt.textContent||'').toUpperCase();
+        const code=(opt.dataset.code||'').toUpperCase();
+        if(code === defaultBankKey || text.includes(defaultBankKey)){ foundIndex = i; break; }
+      }
+      if(foundIndex > 0){ bankSelect.selectedIndex = foundIndex; renderBankMeta(); }
+      accountNumberInput.value = defaultAccount; accountNameInput.value = defaultName; storeCodeInput.value = defaultStore;
+    }
 
-  function renderBankMeta(){
-    bankMeta.innerHTML=''; infoTable.innerHTML=''; const opt = bankSelect.options[bankSelect.selectedIndex]; if(!opt||!opt.value) return;
-    const logoUrl = opt.dataset.logo || opt.dataset.logo_url || ''; const bankname = opt.dataset.bankname || opt.textContent;
-    const img = document.createElement('img'); img.className='bank-logo'; img.alt=bankname;
-    if(logoUrl) img.src = logoUrl; else img.src = makePlaceholderDataUrl(bankname);
-    const title = document.createElement('div'); title.className='bankTitle'; title.textContent = opt.textContent;
-    bankMeta.appendChild(img); bankMeta.appendChild(title);
-  }
+    function makePlaceholderDataUrl(text){
+      const initials = (text||'').split(' ').map(s=>s.trim()[0]||'').slice(0,2).join('').toUpperCase() || 'BN';
+      const c=document.createElement('canvas'); c.width=120; c.height=120; const ctx=c.getContext('2d');
+      ctx.fillStyle='#f1f5f9'; ctx.fillRect(0,0,120,120); ctx.fillStyle='#0f1724'; ctx.font='bold 44px Inter,Arial'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(initials,60,64); return c.toDataURL('image/png');
+    }
 
-  // form submit
-  document.getElementById('qr-form').addEventListener('submit', async (e)=>{
-    e.preventDefault(); showError('');
-    try{
-      const acqId = bankSelect.value;
-      const account = accountNumberInput.value;
-      const name = accountNameInput.value;
-      const amount = amountInput.value;
-      const description = descriptionInput.value;
-      const order = orderCodeInput.value;
-      const store = storeCodeInput.value;
+    function renderBankMeta(){
+      bankMeta.innerHTML=''; infoTable.innerHTML='';
+      const opt = bankSelect.options[bankSelect.selectedIndex]; if(!opt||!opt.value) return;
+      const logoUrl = opt.dataset.logo || opt.dataset.logo_url || '';
+      const bankname = opt.dataset.bankname || opt.textContent;
+      const img = document.createElement('img'); img.className='bank-logo'; img.alt = bankname;
+      if(logoUrl) img.src = logoUrl; else img.src = makePlaceholderDataUrl(bankname);
+      const title = document.createElement('div'); title.className='bankTitle'; title.textContent = opt.textContent;
+      bankMeta.appendChild(img); bankMeta.appendChild(title);
+    }
 
-      if(!acqId || acqId.trim().length<4) throw new Error('Vui lòng chọn ngân hàng.');
-      if(!account || !account.trim()) throw new Error('Vui lòng nhập số tài khoản.');
-      if(!name || !name.trim()) throw new Error('Vui lòng nhập tên chủ.');
+    // submit
+    document.getElementById('qr-form').addEventListener('submit', async (e)=>{
+      e.preventDefault(); showError('');
+      try{
+        const acqId = bankSelect.value; const account = accountNumberInput.value; const name = accountNameInput.value;
+        const amount = amountInput.value; const description = descriptionInput.value; const order = orderCodeInput.value; const store = storeCodeInput.value;
+        if(!acqId || acqId.trim().length<4) throw new Error('Vui lòng chọn ngân hàng.');
+        if(!account || !account.trim()) throw new Error('Vui lòng nhập số tài khoản.');
+        if(!name || !name.trim()) throw new Error('Vui lòng nhập tên chủ.');
 
-      const payload = buildVietQRPayload({ acqId, accountNumber:account, accountName:name, amount, description });
-      payloadTextarea.value = payload; lastPayload = payload;
-      renderQR(payload);
-      renderBankMeta();
+        const payload = buildVietQRPayload({ acqId, accountNumber:account, accountName:name, amount, description });
+        payloadTextarea.value = payload; lastPayload = payload;
+        // render QR
+        const container = document.getElementById('qrcode'); container.innerHTML=''; qrInstance = new QRCode(container, { text: payload, width:260, height:260, correctLevel: QRCode.CorrectLevel.M }); qrPlaceholder.style.display='none';
+        renderBankMeta();
+        infoTable.innerHTML = `
+          <div class="info-row"><div class="info-label">Số tài khoản</div><div class="info-value">${account}</div></div>
+          <div class="info-row"><div class="info-label">Chủ tài khoản</div><div class="info-value">${name.toUpperCase()}</div></div>
+          <div class="info-row"><div class="info-label">Số tiền</div><div class="info-value">${amount && Number(amount)>0 ? Number(amount).toLocaleString('vi-VN')+' VND' : 'Không cố định'}</div></div>
+        `;
+        combinedTextEl.textContent = `${store||'-'} - ${order||'-'}`; combinedTextEl.style.display='block';
+        // create and show final image
+        await showFinalImage();
+      }catch(err){ console.error(err); showError(err.message || 'Có lỗi khi tạo QR'); }
+    });
 
-      infoTable.innerHTML = `
-        <div class="info-row"><div class="info-label">Số tài khoản</div><div class="info-value">${account}</div></div>
-        <div class="info-row"><div class="info-label">Chủ tài khoản</div><div class="info-value">${name.toUpperCase()}</div></div>
-        <div class="info-row"><div class="info-label">Số tiền</div><div class="info-value">${amount && Number(amount)>0 ? Number(amount).toLocaleString('vi-VN')+' VND' : 'Không cố định'}</div></div>
-      `;
-      combinedTextEl.textContent = `${store||'-'} - ${order||'-'}`; combinedTextEl.style.display='block';
+    document.getElementById('clearBtn').addEventListener('click', ()=>{
+      document.getElementById('qr-form').reset();
+      const q = document.getElementById('qrcode'); q.innerHTML=''; const ex = document.getElementById('finalImage'); if(ex) ex.remove();
+      previewCard.style.display='block'; qrPlaceholder.style.display='flex'; bankMeta.innerHTML=''; infoTable.innerHTML=''; combinedTextEl.style.display='none';
+      setDefaultValues();
+    });
 
-      // create final image and show
-      await showFinalImage();
+    logoInput.addEventListener('change', (e)=>{
+      const f = e.target.files && e.target.files[0];
+      if(!f){ logoPreview.src=''; logoPreview.style.display='none'; return; }
+      const fr=new FileReader(); fr.onload = ()=>{ logoPreview.src = fr.result; logoPreview.style.display='block'; logoPreview.style.border='6px solid #fff'; logoPreview.style.boxShadow='0 6px 18px rgba(15,23,42,0.06)'; }; fr.readAsDataURL(f);
+    });
 
-    }catch(err){ console.error(err); showError(err.message || 'Có lỗi khi tạo QR'); }
-  });
+    document.getElementById('copyPayloadBtn').addEventListener('click', async ()=>{
+      const text=payloadTextarea.value; if(!text) return showError('Không có chuỗi EMV để sao chép.');
+      try{ await navigator.clipboard.writeText(text); showError('Đã sao chép'); setTimeout(()=>showError(''),1400);}catch(e){ showError('Trình duyệt không hỗ trợ sao chép'); }
+    });
 
-  document.getElementById('clearBtn').addEventListener('click', ()=>{
-    document.getElementById('qr-form').reset();
-    clearPreviewAndFinal();
-    setDefaultValues();
-  });
+    document.getElementById('downloadBtn').addEventListener('click', async ()=>{
+      try{ showError(''); const dataUrl = await createFinalImageDataURL(); const a=document.createElement('a'); a.href=dataUrl; a.download='vietqr_card.png'; document.body.appendChild(a); a.click(); a.remove(); }catch(e){ showError(e.message || 'Không thể tạo PNG'); }
+    });
 
-  logoInput.addEventListener('change', (e)=>{
-    const f = e.target.files && e.target.files[0];
-    if(!f){ logoPreview.src=''; logoPreview.style.display='none'; return; }
-    const fr = new FileReader();
-    fr.onload = ()=>{ logoPreview.src = fr.result; logoPreview.style.display='block'; logoPreview.style.border='6px solid #fff'; logoPreview.style.boxShadow='0 6px 18px rgba(15,23,42,0.06)'; };
-    fr.readAsDataURL(f);
-  });
-
-  document.getElementById('copyPayloadBtn').addEventListener('click', async ()=>{
-    const text = payloadTextarea.value; if(!text) return showError('Không có chuỗi EMV để sao chép.');
-    try{ await navigator.clipboard.writeText(text); showError('Đã sao chép'); setTimeout(()=>showError(''),1400); }catch(e){ showError('Trình duyệt không hỗ trợ sao chép'); }
-  });
-
-  document.getElementById('downloadBtn').addEventListener('click', async ()=>{
-    try{ showError(''); const dataUrl = await createFinalImageDataURL(); const a=document.createElement('a'); a.href=dataUrl; a.download='vietqr_card.png'; document.body.appendChild(a); a.click(); a.remove(); }catch(e){ showError(e.message || 'Không thể tạo PNG'); }
-  });
-
-  bankSelect.addEventListener('change', ()=> renderBankMeta());
-  document.addEventListener('DOMContentLoaded', ()=> loadBanks());
+    bankSelect.addEventListener('change', ()=> renderBankMeta());
+    document.addEventListener('DOMContentLoaded', ()=> loadBanks());
   </script>
 </body>
 </html>
